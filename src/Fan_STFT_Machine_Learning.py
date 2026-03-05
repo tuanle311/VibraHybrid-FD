@@ -234,7 +234,8 @@ metrics_list = []
 
 # Load data
 print("\n=== Loading Data ===")
-DATA_PATH = r'E:\Tuan\RMIT\De_tai\Fault\Code\Fan-STFT\processed_data.csv' 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_PATH = os.path.join(BASE_DIR, 'Dataset', 'processed_data.csv')
 try:
     data = pd.read_csv(DATA_PATH)
 except FileNotFoundError:

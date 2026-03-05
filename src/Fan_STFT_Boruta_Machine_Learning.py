@@ -27,7 +27,8 @@ from emd import sift
 
 # --- KHAI BÁO BIẾN TOÀN CỤC ---
 OUTPUT_FOLDER = "Model_Evaluation_STFT_HHT_Boruta_Output"
-DATA_PATH = r'E:\Tuan\RMIT\De_tai\Fault\Code\Fan-STFT\processed_data.csv' 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_PATH = os.path.join(BASE_DIR, 'Dataset', 'processed_data.csv')
 SAMPLING_RATE = 1
 MAX_IMFS = 3
 

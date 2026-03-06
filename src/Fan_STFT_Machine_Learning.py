@@ -280,17 +280,17 @@ print("\n=== Training All 6 Hybrid STFT+HHT Models ===")
 
 # List of models and parameters
 models_to_run = [
-    # 1. MLP (Requires scaled data)
+    # 1. MLP
     ("MLP", MLPClassifier(hidden_layer_sizes=(64, 32), activation='relu', solver='adam', max_iter=40, random_state=42, verbose=False), True),
-    # 2. Random Forest (Does not require scaled data)
+    # 2. Random Forest
     ("Random Forest", RandomForestClassifier(n_estimators=100, max_depth=7, random_state=42, n_jobs=-1), False),
-    # 3. CatBoost (Does not require scaled data)
+    # 3. CatBoost
     ("CatBoost", CatBoostClassifier(iterations=10, depth=5, learning_rate=0.1, random_seed=42, verbose=0), False),
-    # 4. LightGBM (Sửa: bỏ tham số early_stopping_rounds ở khởi tạo)
+    # 4. LightGBM 
     ("LightGBM", LGBMClassifier(n_estimators=100, max_depth=5, learning_rate=0.1, random_state=42, verbose=-1), False),
-    # 5. Logistic Regression (Sửa: bỏ multi_class='multinomial')
+    # 5. Logistic Regression
     ("Logistic Regression", LogisticRegression(solver='saga', max_iter=500, random_state=42, n_jobs=-1), True),
-    # 6. Quadratic SVM (Requires scaled data)
+    # 6. Quadratic SVM
     ("Quadratic Support vector Machine", SVC(kernel='poly', degree=2, max_iter=500, random_state=42, verbose=False), True),
 ]
 

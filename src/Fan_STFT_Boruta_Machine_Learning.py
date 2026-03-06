@@ -8,31 +8,32 @@ from scipy.interpolate import interp1d
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
-from sklearn.neighbors import KNeighborsClassifier # Giữ import này mặc dù WKNN bị loại, vì nó có thể hữu ích
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import LogisticRegression
 from catboost import CatBoostClassifier
 from lightgbm import LGBMClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix, classification_report, roc_curve, auc
 from sklearn.preprocessing import StandardScaler 
+import boruta
 from boruta import BorutaPy
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.calibration import calibration_curve
 
-# THƯ VIỆN SHAP
+# SHAP LIBRARY
 import shap 
-# THƯ VIỆN HHT/EMD
+# HHT/EMD LIBRARIES
 from emd import sift 
 
-# --- KHAI BÁO BIẾN TOÀN CỤC ---
+# --- GLOBAL VARIABLE DECLARATIONS ---
 OUTPUT_FOLDER = "Model_Evaluation_STFT_HHT_Boruta_Output"
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_PATH = os.path.join(BASE_DIR, 'Dataset', 'processed_data.csv')
 SAMPLING_RATE = 1
 MAX_IMFS = 3
 
-# Tên 56 đặc trưng (20 STFT + 36 HHT)
+# Names of 56 features (20 STFT + 36 HHT)
 imf_stats = ['IMF_Energy', 'IMF_Kurtosis', 'IMF_Skewness', 'IMF_StdDev']
 axes = ['x', 'y', 'z']
 new_hht_feature_names = []
@@ -49,7 +50,7 @@ FEATURE_NAMES_56 = [
     'total_power'
 ] + new_hht_feature_names
 
-# --- 1. CÁC HÀM TIỆN ÍCH VÀ TRÍCH XUẤT ĐẶC TRƯNG ---
+# --- 1. UTILITY FUNCTIONS AND FEATURE EXTRACTION ---
 
 def format_time(seconds):
     if seconds < 60:
@@ -82,7 +83,7 @@ def calculate_imf_stats(imf_signals, max_imfs=3):
     return stats_list
 
 def extract_stft_hht_features(data, sampling_rate, nperseg=None, noverlap=None):
-    """Trích xuất 56 đặc trưng lai STFT + HHT/EMD."""
+    """Extract 56 hybrid STFT + HHT/EMD features."""
     features_list = []
     labels_list = data['label'].values
     grouped = data.groupby('label')
@@ -121,7 +122,7 @@ def extract_stft_hht_features(data, sampling_rate, nperseg=None, noverlap=None):
             mag_x_t, mag_y_t, mag_z_t = mag_x[:, time_idx], mag_y[:, time_idx], mag_z[:, time_idx]
             all_mags_t = np.concatenate([mag_x_t, mag_y_t, mag_z_t])
             
-            # Tính 20 đặc trưng STFT
+            # Calculate 20 STFT features
             dominant_frequency = np.sum(f[np.argsort(all_mags_t)[-5:] % len(f)] * all_mags_t[np.argsort(all_mags_t)[-5:]]) / np.sum(all_mags_t[np.argsort(all_mags_t)[-5:]]) if np.sum(all_mags_t) > 0 else 0
             spectral_centroid = np.sum(np.tile(f, 3) * all_mags_t) / np.sum(all_mags_t) if np.sum(all_mags_t) > 0 else 0
             spectral_bandwidth = np.sqrt(np.sum(((np.tile(f, 3) - spectral_centroid)**2) * all_mags_t) / np.sum(all_mags_t)) if np.sum(all_mags_t) > 0 else 0
@@ -159,7 +160,7 @@ def extract_stft_hht_features(data, sampling_rate, nperseg=None, noverlap=None):
             
         hht_features_matrix = np.tile(np.array(hht_features), (signal_length, 1))
         
-        # --- 3. Kết hợp và Lưu trữ ---
+        # --- 3. Combine and Store ---
         combined_features = np.hstack([interpolated_stft_features, hht_features_matrix])
         features_list.append(combined_features)
     
@@ -169,7 +170,7 @@ def extract_stft_hht_features(data, sampling_rate, nperseg=None, noverlap=None):
     return X, labels_list
 
 def get_model_metrics_series(model_name, y_test, y_pred, training_time):
-    """Tính toán và trả về các chỉ số hiệu suất dưới dạng số float (đã nhân 100)."""
+    """Calculate and return performance metrics as floats (multiplied by 100)."""
     accuracy = accuracy_score(y_test, y_pred)
     precision = precision_score(y_test, y_pred, average='weighted', zero_division=0) 
     recall = recall_score(y_test, y_pred, average='weighted', zero_division=0)
@@ -185,7 +186,7 @@ def get_model_metrics_series(model_name, y_test, y_pred, training_time):
     })
 
 def plot_detailed_metrics(model_name, y_test, y_pred, y_prob, output_folder, num_classes=9):
-    """Vẽ và lưu Confusion Matrix, ROC Curve (Macro Avg), và Calibration Plot."""
+    """Plot and save Confusion Matrix, ROC Curve (Macro Avg), and Calibration Plot."""
     safe_name = model_name.replace(" ", "_").replace("(", "").replace(")", "")
     
     # 1. Confusion Matrix
@@ -250,9 +251,9 @@ def plot_detailed_metrics(model_name, y_test, y_pred, y_prob, output_folder, num
         plt.close()
 
 def plot_shap_summary(model, X_train_bg, X_test_data, feature_names, model_name, output_folder, explainer_type):
-    """Tính toán và vẽ biểu đồ SHAP Summary (cho cả Tree và Kernel Explainer)."""
+    """Calculate and plot SHAP Summary (for both Tree and Kernel Explainer)."""
     
-    # 1. Lấy mẫu dữ liệu cho SHAP (giới hạn 1000 mẫu để chạy nhanh)
+    # 1. Sample data for SHAP (limited to 1000 samples for speed)
     if X_test_data.shape[0] > 1000:
          np.random.seed(42)
          X_sample = X_test_data[np.random.choice(X_test_data.shape[0], 1000, replace=False)]
@@ -269,7 +270,7 @@ def plot_shap_summary(model, X_train_bg, X_test_data, feature_names, model_name,
             shap_values = explainer.shap_values(X_sample_df)
             
         elif explainer_type == "Kernel":
-            # CẢNH BÁO: Kernel Explainer rất chậm, chỉ lấy 100 mẫu background
+            # WARNING: Kernel Explainer is very slow, using only 100 background samples
             if X_train_bg.shape[0] > 100:
                 np.random.seed(42)
                 background = X_train_bg[np.random.choice(X_train_bg.shape[0], 100, replace=False)]
@@ -281,7 +282,7 @@ def plot_shap_summary(model, X_train_bg, X_test_data, feature_names, model_name,
             explainer = shap.KernelExplainer(model.predict_proba, background)
             shap_values = explainer.shap_values(X_sample_df, nsamples=100)
 
-        # 2. Vẽ biểu đồ Summary (Bar Plot cho Multi-class)
+        # 2. Plot Summary (Bar Plot for Multi-class)
         if isinstance(shap_values, list):
             shap.summary_plot(
                 shap_values, 
@@ -298,7 +299,7 @@ def plot_shap_summary(model, X_train_bg, X_test_data, feature_names, model_name,
                 show=False
             )
 
-        # 3. Lưu và Đóng Plot
+        # 3. Save and Close Plot
         safe_name = model_name.replace(" ", "_").replace("(", "").replace(")", "")
         plt.savefig(os.path.join(output_folder, f'{safe_name}_SHAP_Summary.png'), bbox_inches='tight')
         plt.close()
@@ -308,7 +309,7 @@ def plot_shap_summary(model, X_train_bg, X_test_data, feature_names, model_name,
         print(f"Warning: SHAP calculation failed for {model_name}. Error: {e}")
 
 def plot_radar_chart(results_df, output_folder):
-    """Vẽ Radar Chart so sánh hiệu suất các mô hình (chỉ metrics) và lưu vào folder."""
+    """Plot Radar Chart to compare model performance (metrics only) and save to folder."""
     categories = ['Accuracy (%)', 'Precision (%)', 'Recall (%)', 'F1-Score (%)']
     df_plot = results_df[categories].copy()
     N = len(categories)
@@ -340,7 +341,7 @@ def plot_radar_chart(results_df, output_folder):
     print(f"Radar Chart saved to {output_folder}/Radar_Chart_Comparison.png")
 
 
-# --- 3. KHỐI THỰC THI CHÍNH ---
+# --- 3. MAIN EXECUTION BLOCK ---
 
 output_folder_path = create_output_folder(OUTPUT_FOLDER)
 
@@ -352,7 +353,7 @@ try:
     data = pd.read_csv(DATA_PATH)
     load_time = time.time() - load_start_time
     
-    # --- Trích xuất Đặc trưng (56 Features) ---
+    # --- Feature Extraction (56 Features) ---
     print("\n=== 2. Extracting STFT + HHT Features (56 Total) ===")
     stft_hht_start_time = time.time()
     X, y = extract_stft_hht_features(data, sampling_rate=SAMPLING_RATE)
@@ -362,7 +363,7 @@ try:
     
     y = y - 1
     
-    # --- Standardization và Boruta ---
+    # --- Standardization and Boruta ---
     print("\n=== 3. Standardization and Boruta Feature Selection ===")
     
     X_train_boruta, X_temp, y_train_boruta, y_temp = train_test_split(X, y, test_size=0.2, random_state=42)
@@ -385,40 +386,40 @@ try:
     print(f"Total features selected by Boruta: {len(selected_features)}")
     print(f"Selected Features: {selected_features}")
 
-    # --- 4. Áp dụng Boruta và Final Split (X_train, X_test) ---
+    # --- 4. Apply Boruta and Final Split (X_train, X_test) ---
     print("\n=== 4. Final Data Split and Scaling (Using Selected Features) ===")
     
     X_full_selected = X[:, selected_indices]
     
-    # Split lại (Train/Test)
+    # Re-split (Train/Test)
     X_train_full, X_test, y_train_full, y_test = train_test_split(X_full_selected, y, test_size=0.2, random_state=42)
-    # Chia Training thành Train/Validation (64/16)
+    # Split Training into Train/Validation (64/16)
     X_train, X_val, y_train, y_val = train_test_split(X_train_full, y_train_full, test_size=0.2, random_state=42)
     
-    # Scaling lần cuối
+    # Final Scaling
     final_scaler = StandardScaler()
     X_train_scaled = final_scaler.fit_transform(X_train)
     X_test_scaled = final_scaler.transform(X_test)
     
     # X_train_bg (Data Scaled for Kernel Explainer Background)
-    # Sử dụng X_train_scaled vì các mô hình Kernel (MLP, LR, QSVM) đều cần data đã scale
+    # Use X_train_scaled because Kernel models (MLP, LR, QSVM) all require scaled data
     X_train_bg = X_train_scaled 
     
-    # --- 5. HUẤN LUYỆN, ĐÁNH GIÁ VÀ SHAP ---
+    # --- 5. TRAINING, EVALUATION, AND SHAP ---
     
     results = []
     
     print("\n=== 5. Training, Evaluation, and SHAP Analysis ===")
 
-    # Phân loại Explainer Type
-    # LOẠI BỎ WKNN VÀ BAGGED TREE
+    # Classify Explainer Type
+    # REMOVED WKNN AND BAGGED TREE
     models_to_run = [
-        # Kernel Explainer Models (Chậm - Cần scaled data)
+        # Kernel Explainer Models
         ("MLP", MLPClassifier(hidden_layer_sizes=(128, 64, 32), activation='relu', solver='adam', max_iter=50, random_state=42, verbose=False), True, "Kernel"),
         ("LR", LogisticRegression(solver='saga', max_iter=5000, random_state=42, n_jobs=-1), True, "Kernel"),
         ("QSVM", SVC(kernel='poly', degree=2, max_iter=5000, random_state=42, probability=True, verbose=False), True, "Kernel"),
 
-        # Tree Explainer Models (Nhanh - Không cần scaled data)
+        # Tree Explainer Models
         ("Random Forest", RandomForestClassifier(n_estimators=100, max_depth=7, random_state=42, n_jobs=-1), False, "Tree"),
         ("CatBoost", CatBoostClassifier(iterations=25, depth=7, learning_rate=0.1, random_seed=42, verbose=0), False, "Tree"),
         ("LightGBM", LGBMClassifier(n_estimators=1, max_depth=7, learning_rate=0.1, random_state=42, verbose=-1), False, "Tree"),
@@ -427,7 +428,7 @@ try:
     for name, model, needs_scaling, explainer_type in models_to_run:
         train_start_time = time.time()
         
-        # Chọn data phù hợp
+        # Select appropriate data
         X_train_data = X_train_scaled if needs_scaling else X_train
         X_test_data = X_test_scaled if needs_scaling else X_test
         
@@ -440,7 +441,7 @@ try:
             metrics_series = get_model_metrics_series(name, y_test, y_pred, training_time)
             results.append(metrics_series)
             
-            # IN VÀ LƯU BIỂU ĐỒ CHI TIẾT (CM, ROC, CAL)
+            # PRINT AND SAVE DETAILED PLOTS (CM, ROC, CAL)
             print(f"\n--- DETAILED EVALUATION FOR: {name} ---")
             print(f"Training Time: {format_time(training_time)}")
             print(f"Accuracy: {metrics_series['Accuracy (%)']:.2f}% | F1-Score: {metrics_series['F1-Score (%)']:.2f}%")
@@ -448,7 +449,7 @@ try:
             plot_detailed_metrics(name, y_test, y_pred, y_prob, output_folder_path)
 
             # --- SHAP ANALYSIS ---
-            # X_test_data đã được scale nếu needs_scaling=True
+            # X_test_data is already scaled if needs_scaling=True
             plot_shap_summary(model, X_train_bg, X_test_data, selected_features, name, output_folder_path, explainer_type)
 
         except Exception as e:
@@ -456,13 +457,13 @@ try:
             print(f"\nERROR: Model {name} failed to train/predict. Time: {format_time(training_time)}. Metrics will be NaN. Error: {e}")
             results.append(pd.Series({'Model': name, 'Accuracy (%)': np.nan, 'Precision (%)': np.nan, 'Recall (%)': np.nan, 'F1-Score (%)': np.nan, 'Training Time (s)': training_time}))
 
-    # 6. TỔNG HỢP VÀ VẼ BIỂU ĐỒ CUỐI CÙNG
+    # 6. SUMMARY AND FINAL PLOTTING
     df_results = pd.DataFrame(results).set_index('Model')
     
     print("\n--- Summary of All Model Performance (STFT + Boruta + HHT) ---")
     print(df_results)
     
-    # Vẽ Radar Chart so sánh metrics chính
+    # Plot Radar Chart comparing key metrics
     print("\n=== 7. Generating Radar Chart ===")
     plot_radar_chart(df_results, output_folder_path)
     

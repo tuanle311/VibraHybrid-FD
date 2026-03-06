@@ -135,7 +135,7 @@ models_to_run = [
     # 4. LightGBM
     ("LightGBM", LGBMClassifier(n_estimators=1,max_depth=5, learning_rate=0.1, random_state=42, verbose=-1, early_stopping_rounds=10), False),
     # 5. Logistic Regression
-    ("Logistic Regression", LogisticRegression(solver='saga', multi_class='multinomial', max_iter=500, random_state=42, n_jobs=-1), True),
+    ("Logistic Regression", LogisticRegression(solver='saga', max_iter=500, random_state=42, n_jobs=-1), True),
     # 6. Quadratic SVM
     ("Quadratic Support Vector Machine", SVC(kernel='poly', degree=2, max_iter=500, random_state=42, verbose=False), True),
 ]

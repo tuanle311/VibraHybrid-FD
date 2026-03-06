@@ -415,7 +415,7 @@ try:
     models_to_run = [
         # Kernel Explainer Models (Chậm - Cần scaled data)
         ("MLP", MLPClassifier(hidden_layer_sizes=(128, 64, 32), activation='relu', solver='adam', max_iter=50, random_state=42, verbose=False), True, "Kernel"),
-        ("LR", LogisticRegression(solver='saga', multi_class='multinomial', max_iter=5000, random_state=42, n_jobs=-1), True, "Kernel"),
+        ("LR", LogisticRegression(solver='saga', max_iter=5000, random_state=42, n_jobs=-1), True, "Kernel"),
         ("QSVM", SVC(kernel='poly', degree=2, max_iter=5000, random_state=42, probability=True, verbose=False), True, "Kernel"),
 
         # Tree Explainer Models (Nhanh - Không cần scaled data)
